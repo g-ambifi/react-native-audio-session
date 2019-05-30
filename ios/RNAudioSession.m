@@ -7,9 +7,12 @@
 
 #import "RNAudioSession.h"
 #import <React/RCTLog.h>
+#import <React/RCTBridge.h>
+#import <React/RCTEventDispatcher.h>
 #import <AVFoundation/AVFoundation.h>
 
 @implementation RNAudioSession
+@synthesize bridge = _bridge;
 
 static NSDictionary *_categories;
 static NSDictionary *_options;
@@ -46,6 +49,38 @@ static NSDictionary *_modes;
 }
 
 RCT_EXPORT_MODULE();
+
+- (instancetype)init {
+    self = [super init];
+
+    if ( self ) {
+        NSLog(@"RNAudioSession init");
+    	
+		NSLog(@"Set up audio session observer");
+		//check audio routes
+		[AVAudioSession sharedInstance];
+		// Register for Route Change notifications
+		[[NSNotificationCenter defaultCenter] addObserver: self
+												selector: @selector(handleRouteChange:)
+													name: AVAudioSessionRouteChangeNotification
+													object: nil];
+		
+		AVAudioSession *session = [ AVAudioSession sharedInstance ];
+		AVAudioSessionPortDescription *input = [[session.currentRoute.inputs count]?session.currentRoute.inputs:nil objectAtIndex:0];
+		AVAudioSessionPortDescription *output = [[session.currentRoute.outputs count]?session.currentRoute.outputs:nil objectAtIndex:0];
+		
+		NSString *inputStr = input.portType ? input.portType : @"";
+		NSString *outputStr = output.portType ? output.portType : @"";
+
+		NSLog(@"Initial audio routes");
+		NSLog(@"input %@", inputStr);
+		NSLog(@"output %@", outputStr);
+
+		[self.bridge.eventDispatcher sendAppEventWithName:@"AudioRouteChanged" body:@{@"input": inputStr, @"output": outputStr, @"reason": @""}];
+
+    }
+    return self;
+}
 
 RCT_EXPORT_METHOD(category:(RCTResponseSenderBlock)callback)
 {
@@ -142,6 +177,55 @@ RCT_EXPORT_METHOD(setCategoryAndMode:(NSString *)category mode:(NSString *)mode 
         NSError *error = [NSError errorWithDomain:@"RNAudioSession" code:-1 userInfo:userInfo];
         reject(@"setCategoryAndMode", @"Could not set category and mode.", error);
     }
+}
+
+
+-(void) handleRouteChange:(NSNotification*)notification{
+  NSLog(@"Audio route changed");
+  AVAudioSession *session = [ AVAudioSession sharedInstance ];
+  NSString* seccReason = @"";
+  NSInteger  reason = [[[notification userInfo] objectForKey:AVAudioSessionRouteChangeReasonKey] integerValue];
+  
+  switch (reason) {
+    case AVAudioSessionRouteChangeReasonNoSuitableRouteForCategory:
+      seccReason = @"The route changed because no suitable route is now available for the specified category.";
+      break;
+    case AVAudioSessionRouteChangeReasonWakeFromSleep:
+      seccReason = @"The route changed when the device woke up from sleep.";
+      break;
+    case AVAudioSessionRouteChangeReasonOverride:
+      seccReason = @"The output route was overridden by the app.";
+      break;
+    case AVAudioSessionRouteChangeReasonCategoryChange:
+      seccReason = @"The category of the session object changed.";
+      break;
+    case AVAudioSessionRouteChangeReasonOldDeviceUnavailable:
+      seccReason = @"The previous audio output path is no longer available.";
+      break;
+    case AVAudioSessionRouteChangeReasonNewDeviceAvailable:
+      seccReason = @"A preferred new audio output path is now available.";
+      break;
+    case AVAudioSessionRouteChangeReasonUnknown:
+    default:
+      seccReason = @"The reason for the change is unknown.";
+      break;
+  }
+  AVAudioSessionPortDescription *input = [[session.currentRoute.inputs count]?session.currentRoute.inputs:nil objectAtIndex:0];
+  AVAudioSessionPortDescription *output = [[session.currentRoute.outputs count]?session.currentRoute.outputs:nil objectAtIndex:0];
+  
+  NSString *inputStr = input.portType ? input.portType : @"";
+  NSString *outputStr = output.portType ? output.portType : @"";
+  
+  NSLog(@"Change reason %@", seccReason);
+  NSLog(@"input %@", inputStr);
+  NSLog(@"output %@", outputStr);
+  
+  [self.bridge.eventDispatcher sendAppEventWithName:@"AudioRouteChanged" body:@{@"input": inputStr, @"output": outputStr, @"reason": seccReason}];
+}
+
++ (BOOL)requiresMainQueueSetup
+{
+    return YES;
 }
 
 @end
